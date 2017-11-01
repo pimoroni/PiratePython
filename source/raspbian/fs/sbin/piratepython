@@ -1,0 +1,177 @@
+#!/bin/bash
+chown -R pirate:pirate /home/pirate
+mount /boot
+
+PP_PID=$$
+PIDFILE="/tmp/piratepython.pid"
+PYTHONPIDFILE="/tmp/piratepython.python.pid"
+PYTHON_LOG="/home/pirate/python.log"
+PYTHON_PID=-1
+PYTHON_OUTPUT="/dev/ttyGS0"
+GS0_MODE=$(cat /boot/serial_mode | tr -d '[:space:]')
+
+# Block multiple instances
+if [ -f "$PIDFILE" ]; then
+	PID=`cat $PIDFILE`
+	kill -0 $PID
+	RESULT=$?
+	if [ $RESULT -eq 0 ]; then
+		if [ "$1" == "stop" ]; then
+			echo "Stopping existing Pirate Python process! PID: $PID"
+			PPID=`cat $PYTHONPIDFILE`
+			kill -0 $PPID
+			RESULT=$?
+			if [ $RESULT -eq 0 ]; then
+				echo "Stopping python child! PID: $PID"
+				kill $PPID
+			fi
+			rm -f $PIDFILE
+			rm -f $PYTHONPIDFILE
+			kill $PID
+			exit $?
+		else
+			echo "Existing Pirate Python process running? PID: $PID"
+			exit 1
+		fi
+	fi
+	rm -f $PIDFILE
+	rm -rf $PYTHONPIDFILE
+fi
+
+if [ "$1" == "stop" ]; then
+	echo "No existing Pirate Python process found!"
+	exit 0
+fi
+
+# Re-acquire existing Python PID
+if [ -f "$PYTHONPIDFILE" ]; then
+	PPID=`cat $PYTHONPIDFILE`
+	kill -0 $PPID
+	RESULT=$?
+	if [ $RESULT -eq 0 ]; then
+		PYTHON_PID="$PPID"
+	else
+		rm -f $PYTHONPIDFILE
+	fi
+fi
+
+echo "$PP_PID" > $PIDFILE
+
+echo "ttyGS0 setting: $GS0_MODE"
+
+if [ ! "$GS0_MODE" == "debug" ] && [ ! "$GS0_MODE" == "terminal" ]; then
+	GS0_MODE="debug"
+fi
+
+if [ "$GS0_MODE" == "debug" ]; then
+	systemctl stop getty@ttyGS0.service
+fi
+
+if [ "$GS0_MODE" == "terminal" ]; then
+	systemctl start getty@ttyGS0.service
+fi
+
+echo "ttyGS0 mode: $GS0_MODE"
+
+function wait_for_change {
+	while [ 1 ]; do
+		echo 3 > /proc/sys/vm/drop_caches
+		ls /boot > /dev/null
+		dd iflag=direct if=/boot/settings.txt of=/tmp/_settings.txt > /dev/null 2>&1
+		dd iflag=direct if=/boot/serial_mode of=/tmp/serial_mode > /dev/null 2>&1
+		dd iflag=direct if=/boot/main.py of=/tmp/_main.py > /dev/null 2>&1
+		dd iflag=direct if=/boot/wpa_supplicant.conf of=/tmp/wpa_supplicant.conf > /dev/null 2>&1
+
+		if [ -f /tmp/serial_mode ]; then
+			NEW_MODE=$(cat /tmp/serial_mode)
+			if [ "$NEW_MODE" == "debug" ] && [ "$GS0_MODE" == "terminal" ]; then
+				GS0_MODE="$NEW_MODE"
+				systemctl stop getty@ttyGS0.service
+				echo "Notice: Changed to serial debug mode." >> /dev/ttyGS0
+				launch_script
+			fi
+			if [ "$NEW_MODE" == "terminal" ] && [ "$GS0_MODE" == "debug" ]; then
+				GS0_MODE="$NEW_MODE"
+				systemctl start getty@ttyGS0.service
+				launch_script
+			fi
+		fi
+
+		# Check for "reboot" file and reboot if found
+		ls /boot/reboot > /dev/null 2>&1
+		if [ -f /boot/reboot ]; then
+			mount -o,remount,rw /boot
+			rm -f /boot/reboot
+			sync
+			umount /boot
+			reboot
+			sleep 1
+		fi
+
+		# Compare /boot/main.py to cached version, and update if needed
+		diff /tmp/_main.py /tmp/main.py > /dev/null 2>&1
+		if [ $? -eq 1 ]; then
+			# Precompile step to verify file isn't truncated/corrupted
+			# This *still* wont catch every case of truncation
+			# Some may result in a valid but incomplete python file
+			python -m py_compile /tmp/_main.py
+			if [ $? -eq 0 ]; then
+				# We've paid the piper, let's keep that compiled version
+				cp /tmp/__pycache__/_main.cpython-34.pyc /tmp/__pycache__/main.cpython-34.pyc
+				mv /tmp/_main.py /tmp/main.py
+				launch_script
+			fi
+		fi
+
+		# Compare wpa_supplicant.conf to cached version, and update if needed
+		if [ -f /tmp/wpa_supplicant.conf ]; then
+			diff /tmp/wpa_supplicant.conf /etc/wpa_supplicant/wpa_supplicant-wlan0.conf > /dev/null 2>&1
+			if [ $? -eq 1 ]; then
+				cp /tmp/wpa_supplicant.conf /etc/wpa_supplicant/wpa_supplicant-wlan0.conf
+				systemctl restart wpa_supplicant@wlan0
+			fi
+		fi
+
+		sleep 1
+	done
+}
+
+function launch_script {
+	echo "Relaunching /boot/main.py"
+
+	if [ -f "$PYTHON_LOG" ]; then
+		rm -f $PYTHON_LOG
+		touch $PYTHON_LOG
+	fi
+	if [ ! $PYTHON_PID -eq -1 ]; then
+		/bin/kill $PYTHON_PID
+	fi
+	if [ "$GS0_MODE" == "terminal" ]; then
+		PYTHON_OUTPUT="$PYTHON_LOG"
+	fi
+	if [ "$GS0_MODE" == "debug" ]; then
+		PYTHON_OUTPUT="/dev/ttyGS0"
+		timeout 1 bash -c "echo \"Serial debug enabled!\" > /dev/ttyGS0"
+		RESULT=$?
+                echo "Result: $RESULT"
+		if [ $RESULT -eq 124 ]; then
+			echo "Timeout on /dev/ttyGS0, using logfile"
+			# ttyGS0 has timed out!
+			PYTHON_OUTPUT="$PYTHON_LOG"
+		fi
+	fi
+
+	echo "---------- Restarting main.py ----------" > $PYTHON_OUTPUT
+	PYTHONPATH=/boot/libraries PYTHONUNBUFFERED=1 /usr/bin/python3 /tmp/main.py >> $PYTHON_OUTPUT 2>&1 &
+	PYTHON_PID=$!
+	echo "$PYTHON_PID" > $PYTHONPIDFILE
+}
+
+if [ -f /boot/startup.sh ]; then
+	cp /boot/startup.sh /tmp/startup.sh
+	bash /tmp/startup.sh
+fi
+
+dd iflag=direct if=/boot/main.py of=/tmp/main.py > /dev/null 2>&1
+launch_script
+wait_for_change

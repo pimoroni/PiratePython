@@ -1,0 +1,173 @@
+#!/bin/bash -e
+
+ROOTDIR=root
+NEW_USER=pirate
+NEW_PASS=`mkpasswd -m sha-512 p1r4t3`
+NEW_HOST=piratepython
+MYCHROOT="proot -0 -q qemu-arm-static -w / -r"
+
+export QEMU_LD_PREFIX=$(readlink -f $ROOTDIR)
+export APT_HTTP_PROXY=http://localhost:3142
+
+rm -rf --one-file-system $ROOTDIR
+
+http_proxy=$APT_HTTP_PROXY /usr/sbin/multistrap -d $ROOTDIR -f multistrap.conf
+
+# If you want to use fakeroot/fakechroot for some reason,
+# you will need to install them in multistrap.conf.
+
+echo "Running preinst scripts..."
+
+for script in $ROOTDIR/var/lib/dpkg/info/*.preinst; do
+        [ "$script" = "$ROOTDIR/var/lib/dpkg/info/vpnc.preinst" ] && continue
+        echo "I: run preinst script ${script##$ROOTDIR}"
+        DPKG_MAINTSCRIPT_NAME=preinst \
+        DPKG_MAINTSCRIPT_PACKAGE="`basename $script .preinst`" \
+        $MYCHROOT $ROOTDIR ${script##$ROOTDIR} install
+done
+
+echo ""
+echo ""
+echo "Running dpkg --configure -a"
+
+echo "- don't run makedev"
+# don't run makedev
+# we will create device nodes later, after we are done with the system dev
+rm -f $ROOTDIR/var/lib/dpkg/info/makedev.postinst
+
+echo "- copy keyring"
+# work around https://pad.lv/1727874
+rm -f $ROOTDIR/var/lib/dpkg/info/raspbian-archive-keyring.postinst
+ln -sf /usr/share/keyrings/raspbian-archive-keyring.gpg $ROOTDIR/etc/apt/trusted.gpg.d/
+
+echo "- work around PAM error"
+# work around PAM error
+ln -sf /bin/true $ROOTDIR/usr/bin/chfn
+
+echo "- mount /dev/urandom"
+# mount /dev/urandom for dropbear key generation
+touch $ROOTDIR/dev/urandom
+sudo mount -o bind /dev/urandom $ROOTDIR/dev/urandom
+
+echo "- run dpkg --configure"
+# run dpkg --configure
+DEBIAN_FRONTEND=noninteractive DEBCONF_NONINTERACTIVE_SEEN=true \
+ LC_ALL=C LANGUAGE=C LANG=C $MYCHROOT $ROOTDIR /usr/bin/dpkg --configure -a || true
+
+echo ""
+echo ""
+echo "Preparing root..."
+
+# no root password
+$MYCHROOT $ROOTDIR passwd -d root
+
+# reset default udev persistent-net rule
+rm -f $ROOTDIR/etc/udev/rules.d/*_persistent-net.rules
+
+# /etc/resolv.conf symlink
+rm -f $ROOTDIR/etc/resolv.conf
+$MYCHROOT $ROOTDIR ln -sf "/run/systemd/resolve/resolv.conf" "/etc/resolv.conf"
+
+echo "- remove dropbear init script"
+# junk dropbear init script
+rm -f $ROOTDIR/etc/init.d/dropbear
+
+echo ""
+echo ""
+echo "Copy files from fs/* into $ROOTDIR"
+# copy files here
+cp -r fs/* $ROOTDIR
+
+echo ""
+echo ""
+echo "Setup systemd services"
+
+$MYCHROOT $ROOTDIR /bin/systemctl reenable systemd-networkd
+$MYCHROOT $ROOTDIR /bin/systemctl reenable systemd-resolved
+$MYCHROOT $ROOTDIR /bin/systemctl reenable systemd-timesyncd
+$MYCHROOT $ROOTDIR /bin/systemctl reenable systemd-networkd-wait-online.service
+$MYCHROOT $ROOTDIR /bin/systemctl reenable piratepython.service
+$MYCHROOT $ROOTDIR /bin/systemctl reenable dropbear.service
+$MYCHROOT $ROOTDIR /bin/systemctl reenable wpa_supplicant@wlan0.service
+$MYCHROOT $ROOTDIR /bin/systemctl reenable getty@ttyGS0.service
+
+# time used by timesyncd if no other is available
+touch $ROOTDIR/var/lib/systemd/clock
+
+echo "Squash kernel messages"
+
+echo "kernel.printk = 3 4 1 3" >> $ROOTDIR/etc/sysctl.conf
+
+echo ""
+echo ""
+echo "Installing modules..."
+
+tar -xf ../kernel/kernel-root.tar.gz -C $ROOTDIR
+
+echo "run ldconfig"
+$ROOTDIR/sbin/ldconfig -r $ROOTDIR
+
+echo "Additional users..."
+
+./scripts/addusers.sh
+
+echo "Installing Python packages"
+
+cp -r pip root/
+proot -0 -q "qemu-arm-static -cpu arm1176" -w / -r root env HOME=/root pip3 install pip/*
+rm -rf root/pip
+
+echo ""
+echo ""
+echo "Links and busywork..."
+
+echo "Enable o-password sudo"
+# Dirty hack to enable no-password in sudo
+sed -i 's/ ALL/ NOPASSWD: ALL/g' $ROOTDIR/etc/sudoers
+
+echo "symlink some stuff for convinience"
+# Need to add /sbin to pirate's path
+$MYCHROOT $ROOTDIR ln -sf /sbin/ifconfig /usr/bin/ifconfig
+$MYCHROOT $ROOTDIR ln -sf /usr/bin/python3 /usr/bin/python
+$MYCHROOT $ROOTDIR ln -sf /usr/bin/pip3 /usr/bin/pip
+
+echo ""
+echo ""
+echo "Remove apt and dpkg"
+# Implode apt and dpkg, the system is stateless, 
+# so whadda we gonna do with a package manager?
+$MYCHROOT $ROOTDIR dpkg --purge apt
+$MYCHROOT $ROOTDIR dpkg --force-all --purge dpkg
+$MYCHROOT $ROOTDIR rm -rf /etc/apt
+
+echo ""
+echo "" # Yes I know you can use \n but this visually separates it
+echo "Cleaning up..."
+
+./cleanup $ROOTDIR excludes.conf > /dev/null
+mkdir -p $ROOTDIR/etc/dpkg/dpkg.cfg.d
+cp excludes.conf $ROOTDIR/etc/dpkg/dpkg.cfg.d/
+
+echo "Update udevadm hwdb"
+$MYCHROOT $ROOTDIR udevadm hwdb --update --usr
+
+echo "Unmount /dev/urandom"
+sudo umount $ROOTDIR/dev/urandom
+rm -f $ROOTDIR/dev/urandom
+
+echo "Symlinking init"
+# Link init to /init so the initrd actually boots
+ln -sf /sbin/init $ROOTDIR/init
+
+ln -sf /proc/mounts $ROOTDIR/etc/mtab
+
+echo "Creating minimal device nodes..."
+
+# this must be done last. if the fakeroot devices exist on the system,
+# fakechroot wont be able to read from them, which breaks systemd setup.
+cd $ROOTDIR/dev
+fakeroot /sbin/MAKEDEV std
+cd ../..
+
+
+./scripts/packrootfs.sh

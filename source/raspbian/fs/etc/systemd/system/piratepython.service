@@ -1,0 +1,15 @@
+[Unit]
+Description=Pirathon Python Runner
+After=multiuser.target
+Requires=local-fs.target
+
+[Install]
+WantedBy=default.target
+
+[Service]
+Restart=always
+Type=simple
+PrivateTmp=false
+ExecStart=/sbin/piratepython
+ExecStop=/sbin/piratepython stop
+
