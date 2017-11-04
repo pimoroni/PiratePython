@@ -1,0 +1,97 @@
+#!/bin/bash
+
+if [ ! -d /sys/kernel/config/usb_gadget ]; then
+	modprobe libcomposite
+fi
+
+if [ -d /sys/kernel/config/usb_gadget/g1 ]; then
+	exit 0
+fi
+
+ID_VENDOR="0x0430" # was "0x1d6b"
+ID_PRODUCT="0xa4a2" # was 0x0104"
+
+SERIAL="$(grep Serial /proc/cpuinfo | sed 's/Serial\s*: 0000\(\w*\)/\1/')"
+MAC="$(echo ${SERIAL} | sed 's/\(\w\w\)/:\1/g' | cut -b 2-)"
+MAC_HOST="12$(echo ${MAC} | cut -b 3-)"
+MAC_DEV="02$(echo ${MAC} | cut -b 3-)"
+
+cd /sys/kernel/config/usb_gadget/
+
+mkdir g1
+cd g1
+
+echo "0x0200" > bcdUSB
+echo "0x02" > bDeviceClass
+echo "0x02" > bDeviceSubClass
+echo "0x3008" > bcdDevice
+echo $ID_VENDOR > idVendor
+echo $ID_PRODUCT > idProduct
+
+echo "1" > os_desc/use
+echo "0xcd" > os_desc/b_vendor_code
+echo "MSFT100" > os_desc/qw_sign 
+
+mkdir strings/0x409
+echo "9112473" > strings/0x409/serialnumber
+echo "Pimoroni Ltd." > strings/0x409/manufacturer
+echo "PiratePython" > strings/0x409/product
+
+mkdir configs/c.1
+mkdir configs/c.1/strings/0x409
+echo "CDC 2xACM+Mass Storage+RNDIS" > configs/c.1/strings/0x409/configuration
+
+#mkdir configs/c.2
+#mkdir configs/c.2/strings/0x409
+#echo "CDC 2xACM+Mass Storage+RNDIS" > configs/c.2/strings/0x409/configuration
+
+mkdir functions/acm.GS0
+mkdir functions/acm.GS1
+mkdir functions/rndis.usb0
+mkdir functions/mass_storage.piratepython
+
+echo "/dev/mmcblk0p1" > functions/mass_storage.piratepython/lun.0/file
+echo 0 > functions/mass_storage.piratepython/stall
+echo 0 > functions/mass_storage.piratepython/lun.0/cdrom
+echo 0 > functions/mass_storage.piratepython/lun.0/nofua
+echo 1 > functions/mass_storage.piratepython/lun.0/removable
+echo "PiratePython" > functions/mass_storage.piratepython/lun.0/inquiry_string
+
+echo "RNDIS" > functions/rndis.usb0/os_desc/interface.rndis/compatible_id
+echo "5162001" > functions/rndis.usb0/os_desc/interface.rndis/sub_compatible_id
+
+echo $MAC_HOST > functions/rndis.usb0/host_addr
+echo $MAC_DEV > functions/rndis.usb0/dev_addr
+
+ln -s functions/rndis.usb0 configs/c.1
+
+ln -s configs/c.1 os_desc
+
+echo "20980000.usb" > UDC
+
+# Show Windows the RNDIS device with
+# bDeviceClass 0x02
+# bDeviceSubClass 0x02
+
+sleep 5
+
+# Give it time to install
+
+echo "" > UDC
+
+# Yank it back
+
+ln -s functions/acm.GS0 configs/c.1
+ln -s functions/acm.GS1 configs/c.1
+ln -s functions/mass_storage.piratepython configs/c.1
+
+# Sneak in all the extra goodies
+
+echo "0x00" > bDeviceClass
+
+# Reset bDeviceClass to 0x00
+
+echo "20980000.usb" > UDC
+
+# BOOM!
+

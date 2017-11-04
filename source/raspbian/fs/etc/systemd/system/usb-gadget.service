@@ -1,0 +1,11 @@
+[Unit]
+Description=Create USB Gadget
+
+[Service]
+Type=oneshot
+ExecStart=/sbin/piratepython-usb
+StandardInput=tty
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
