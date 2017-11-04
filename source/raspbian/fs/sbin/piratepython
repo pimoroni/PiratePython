@@ -2,9 +2,13 @@
 chown -R pirate:pirate /home/pirate
 mount /boot
 
+# Wait for /boot
+while [ ! -f /boot/initrd ]; do sleep 1; done
+
 PP_PID=$$
 PIDFILE="/tmp/piratepython.pid"
 PYTHONPIDFILE="/tmp/piratepython.python.pid"
+BOOT_LOG="/home/pirate/boot.log"
 PYTHON_LOG="/home/pirate/python.log"
 PYTHON_PID=-1
 PYTHON_OUTPUT="/dev/ttyGS0"
@@ -114,8 +118,11 @@ function wait_for_change {
 			# Precompile step to verify file isn't truncated/corrupted
 			# This *still* wont catch every case of truncation
 			# Some may result in a valid but incomplete python file
-			python -m py_compile /tmp/_main.py
-			if [ $? -eq 0 ]; then
+			python -m py_compile /tmp/_main.py > /tmp/python-compile.log
+			RESULT=`cat /tmp/python-compile.log | grep "SyntaxError: source code string cannot contain null bytes"`
+			# We should also check for SyntaxError: EOF and SyntaxError: unexpected EOF here and retry
+			#if [ $? -eq 0 ]; then
+			if [[ "$RESULT" == "" ]]; then
 				# We've paid the piper, let's keep that compiled version
 				cp /tmp/__pycache__/_main.cpython-34.pyc /tmp/__pycache__/main.cpython-34.pyc
 				mv /tmp/_main.py /tmp/main.py
@@ -167,11 +174,40 @@ function launch_script {
 	echo "$PYTHON_PID" > $PYTHONPIDFILE
 }
 
-if [ -f /boot/startup.sh ]; then
-	cp /boot/startup.sh /tmp/startup.sh
-	bash /tmp/startup.sh
+BOOT_OUTPUT="$BOOT_LOG"
+
+if [ "$GS0_MODE" == "terminal" ]; then
+	BOOT_OUTPUT="$BOOT_LOG"
 fi
 
-dd iflag=direct if=/boot/main.py of=/tmp/main.py > /dev/null 2>&1
-launch_script
+if [ "$GS0_MODE" == "debug" ]; then
+	BOOT_OUTPUT="/dev/ttyGS0"
+	timeout 1 bash -c "echo \"Serial debug enabled!\" > /dev/ttyGS0"
+	RESULT=$?
+        echo "Result: $RESULT"
+	if [ $RESULT -eq 124 ]; then
+		echo "Timeout on /dev/ttyGS0, using logfile"
+		# ttyGS0 has timed out!
+		BOOT_OUTPUT="$BOOT_LOG"
+	fi
+fi
+
+if [ -f /boot/localtime ]; then
+	cp /boot/localtime /etc/localtime
+fi
+
+if [ -f /boot/boot.sh ]; then
+	bash /boot/boot.sh >> $BOOT_OUTPUT 2>&1
+fi
+
+if [ -f /boot/boot.py ]; then
+	PYTHONPATH=/boot/libraries PYTHONUNBUFFERED=1 /usr/bin/python3 /boot/boot.py >> $BOOT_OUTPUT 2>&1
+fi
+
+#dd iflag=direct if=/boot/main.py of=/tmp/main.py > /dev/null 2>&1
+
+rm /tmp/_main.py
+rm /tmp/main.py
+touch /tmp/main.py
+
 wait_for_change

@@ -1,0 +1,8 @@
+# Reserved for feature upgrade
+# currently does nothing!
+serial_mode=debug
+ssh=on
+network=on
+bluetooth=off
+hostname=piratepython
+password=p1r4t3

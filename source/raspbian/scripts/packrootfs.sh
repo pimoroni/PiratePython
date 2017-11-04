@@ -1,5 +1,7 @@
 source env.sh
 
+ROOTDIR="$ROOTDIR-dist"
+
 echo "Packing rootfs..."
 
 $MYCHROOT $ROOTDIR sh -c "cd / && find * -xdev -not \( \

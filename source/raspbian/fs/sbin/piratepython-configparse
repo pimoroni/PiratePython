@@ -1,0 +1,96 @@
+#!/usr/bin/python3
+
+CONFIGDIR = "./"
+
+import os
+from sys import exit
+
+config = open(os.path.join(CONFIGDIR,"_config.txt"), "r").read()
+
+boolean = ["on", "off"]
+
+keys = {
+    "serial_mode": ["debug", "terminal"],
+    "deploy": boolean,
+    "network": boolean,
+    "bluetooth": boolean,
+    "hostname": str,
+    "password": str
+}
+
+config = config.splitlines()
+
+if not "# Begin" in config:
+    print("Config missing \"# Begin\". Ignoring.")
+    exit(1)
+
+if not "# End" in config:
+    print("Config missing \"# End\". Ignoring.")
+    exit(1)
+
+output = {}
+
+errors = 0
+
+for line in config:
+    line = line.strip()
+
+    if line.startswith("#") or line == "":
+        continue
+
+    key, value = line.split("=", 1)
+    if key in keys:
+        valid = keys[key]
+
+        if valid is str:
+            output[key] = value
+
+        elif valid is int:
+            try:
+                output[key] = int(value)
+            except ValueError:
+                print("FATAL: Invalid value {} for setting: {}".format(key, value))
+                errors += 1
+
+        elif value in valid:
+            output[key] = value
+
+        else:
+            print("FATAL: Invalid value \"{}\" for setting: {}".format(key, value))
+            errors += 1
+
+    else:
+        print("WARNING: Ignoring setting: {}".format(key))
+
+
+for k in keys.keys():
+    if k not in output:
+        print("FATAL: Missing required setting: {}".format(k))
+        errors += 1
+
+print("\n\n")
+
+if errors > 0:
+    print("Encountered {} errors.".format(errors))
+    print("config file not updated.")
+    exit(1)
+
+def flatten(dict_input):
+    for k, v in dict_input.iteritems():
+        k = k.upper()
+        if isinstance(v, int):
+            yield "{}={}".format(k, v)
+        else:
+            yield "{}=\"{}\"".format(k, v)
+
+output = list(flatten(output))
+
+output.insert(0, "# Auto-generated config. Do not edit!")
+output = "\n".join(output)
+
+with open(os.path.join(CONFIGDIR, "config.txt"), "w+") as f:
+    f.write(output)
+
+print(output)
+
+exit(0)

@@ -9,22 +9,32 @@ MYCHROOT="proot -0 -q qemu-arm-static -w / -r"
 export QEMU_LD_PREFIX=$(readlink -f $ROOTDIR)
 export APT_HTTP_PROXY=http://localhost:3142
 
-rm -rf --one-file-system $ROOTDIR
+#rm -rf --one-file-system $ROOTDIR
 
-http_proxy=$APT_HTTP_PROXY /usr/sbin/multistrap -d $ROOTDIR -f multistrap.conf
+mkdir -p $ROOTDIR/receipts
+
+if [ ! -f "$ROOTDIR/receipts/multistrap" ]; then
+	http_proxy=$APT_HTTP_PROXY /usr/sbin/multistrap -d $ROOTDIR -f multistrap.conf
+
+	touch $ROOTDIR/receipts/multistrap
+fi
 
 # If you want to use fakeroot/fakechroot for some reason,
 # you will need to install them in multistrap.conf.
 
-echo "Running preinst scripts..."
+if [ ! -f "$ROOTDIR/receipts/preinstall-scripts" ]; then
+	echo "Running preinst scripts..."
 
-for script in $ROOTDIR/var/lib/dpkg/info/*.preinst; do
-        [ "$script" = "$ROOTDIR/var/lib/dpkg/info/vpnc.preinst" ] && continue
-        echo "I: run preinst script ${script##$ROOTDIR}"
-        DPKG_MAINTSCRIPT_NAME=preinst \
-        DPKG_MAINTSCRIPT_PACKAGE="`basename $script .preinst`" \
-        $MYCHROOT $ROOTDIR ${script##$ROOTDIR} install
-done
+	for script in $ROOTDIR/var/lib/dpkg/info/*.preinst; do
+       		[ "$script" = "$ROOTDIR/var/lib/dpkg/info/vpnc.preinst" ] && continue
+        	echo "I: run preinst script ${script##$ROOTDIR}"
+        	DPKG_MAINTSCRIPT_NAME=preinst \
+        	DPKG_MAINTSCRIPT_PACKAGE="`basename $script .preinst`" \
+       		$MYCHROOT $ROOTDIR ${script##$ROOTDIR} install
+	done
+
+	touch $ROOTDIR/receipts/preinstall-scripts
+fi
 
 echo ""
 echo ""
@@ -49,10 +59,15 @@ echo "- mount /dev/urandom"
 touch $ROOTDIR/dev/urandom
 sudo mount -o bind /dev/urandom $ROOTDIR/dev/urandom
 
-echo "- run dpkg --configure"
-# run dpkg --configure
-DEBIAN_FRONTEND=noninteractive DEBCONF_NONINTERACTIVE_SEEN=true \
- LC_ALL=C LANGUAGE=C LANG=C $MYCHROOT $ROOTDIR /usr/bin/dpkg --configure -a || true
+if [ ! -f $ROOTDIR/receipts/dpkg-configure ]; then
+	echo "- run dpkg --configure"
+	# run dpkg --configure
+	DEBIAN_FRONTEND=noninteractive DEBCONF_NONINTERACTIVE_SEEN=true \
+ 	LC_ALL=C LANGUAGE=C LANG=C $MYCHROOT $ROOTDIR /usr/bin/dpkg --configure -a || true
+	touch $ROOTDIR/receipts/dpkg-configure
+else
+	echo "- skipping dpkg --configure"
+fi
 
 echo ""
 echo ""
@@ -75,7 +90,7 @@ rm -f $ROOTDIR/etc/init.d/dropbear
 echo ""
 echo ""
 echo "Copy files from fs/* into $ROOTDIR"
-# copy files here
+
 cp -r fs/* $ROOTDIR
 
 echo ""
@@ -109,13 +124,15 @@ $ROOTDIR/sbin/ldconfig -r $ROOTDIR
 
 echo "Additional users..."
 
-./scripts/addusers.sh
+if [ ! -f $ROOTDIR/receipts/addusers ]; then
+	./scripts/addusers.sh
+	touch $ROOTDIR/receipts/addusers
+fi
 
-echo "Installing Python packages"
-
-cp -r pip root/
-proot -0 -q "qemu-arm-static -cpu arm1176" -w / -r root env HOME=/root pip3 install pip/*
-rm -rf root/pip
+if [ ! -f $ROOTDIR/receipts/pipinstall ]; then
+	./scripts/pipinstall.sh
+	touch $ROOTDIR/receipts/pipinstall
+fi
 
 echo ""
 echo ""
@@ -131,43 +148,21 @@ $MYCHROOT $ROOTDIR ln -sf /sbin/ifconfig /usr/bin/ifconfig
 $MYCHROOT $ROOTDIR ln -sf /usr/bin/python3 /usr/bin/python
 $MYCHROOT $ROOTDIR ln -sf /usr/bin/pip3 /usr/bin/pip
 
-echo ""
-echo ""
-echo "Remove apt and dpkg"
-# Implode apt and dpkg, the system is stateless, 
-# so whadda we gonna do with a package manager?
-$MYCHROOT $ROOTDIR dpkg --purge apt
-$MYCHROOT $ROOTDIR dpkg --force-all --purge dpkg
-$MYCHROOT $ROOTDIR rm -rf /etc/apt
-
-echo ""
-echo "" # Yes I know you can use \n but this visually separates it
-echo "Cleaning up..."
-
-./cleanup $ROOTDIR excludes.conf > /dev/null
-mkdir -p $ROOTDIR/etc/dpkg/dpkg.cfg.d
-cp excludes.conf $ROOTDIR/etc/dpkg/dpkg.cfg.d/
-
-echo "Update udevadm hwdb"
-$MYCHROOT $ROOTDIR udevadm hwdb --update --usr
+$MYCHROOT $ROOTDIR rm -f /usr/bin/perl
+$MYCHROOT $ROOTDIR ln -sf /usr/bin/perl5.24.1 /usr/bin/perl
 
 echo "Unmount /dev/urandom"
 sudo umount $ROOTDIR/dev/urandom
 rm -f $ROOTDIR/dev/urandom
 
-echo "Symlinking init"
-# Link init to /init so the initrd actually boots
-ln -sf /sbin/init $ROOTDIR/init
+cp -a $ROOTDIR $ROOTDIR-dist
 
-ln -sf /proc/mounts $ROOTDIR/etc/mtab
+ROOTDIR="$ROOTDIR-dist"
 
-echo "Creating minimal device nodes..."
+rm -rf $ROOTDIR/receipts
 
-# this must be done last. if the fakeroot devices exist on the system,
-# fakechroot wont be able to read from them, which breaks systemd setup.
-cd $ROOTDIR/dev
-fakeroot /sbin/MAKEDEV std
-cd ../..
+./scripts/implode.sh
 
+./scripts/final.sh
 
 ./scripts/packrootfs.sh
