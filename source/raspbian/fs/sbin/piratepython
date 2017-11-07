@@ -16,6 +16,20 @@ PYTHON_PID=-1
 GS0_MODE="debug"
 GS1_MODE="terminal"
 
+# Some default settings for the settings.txt file
+CODE_AUTORELOAD=true
+CODE_DEPLOY=false
+
+SYSTEM_HOSTNAME="piratepython"
+SYSTEM_PASSWORD="p1r4t3"
+
+NETWORK_ENABLED=true
+NETWORK_MODE="wifi"
+
+BLUETOOTH_ENABLED=false
+
+USB_ETHERNET="windows"
+
 chown -R pirate:pirate /home/pirate
 mount /boot
 
@@ -75,28 +89,98 @@ fi
 
 echo "$PP_PID" > $PIDFILE
 
+function changed {
+	diff /tmp/_$1 /tmp/$1 > /dev/null 2>&1
+	if [ $? -eq 1 ]; then
+		true
+	else
+		false
+	fi
+}
+
+function update_settings {
+	if changed "settings.txt"; then
+		mv /tmp/_settings.txt /tmp/settings.txt
+		/sbin/piratepython-configparse > /tmp/_settings.sh
+		if [ "$?" == "0" ]; then
+			mv /tmp/_settings.sh /tmp/settings.sh
+			source /tmp/settings.sh
+
+			if [ "$SYSTEM_HOSTNAME" != "" ]; then
+				OLD_HOSTNAME=`cat /etc/hostname`
+				if [ "$OLD_HOSTNAME" != "$SYSTEM_HOSTNAME" ]; then
+					echo "Changing hostname from $OLD_HOSTNAME to $SYSTEM_HOSTNAME"
+					sed -i 's/127.0.0.1\s\{1,\}$OLD_HOSTNAME/127.0.0.1\t$SYSTEM_HOSTNAME/' /etc/hosts
+					echo "$SYSTEM_HOSTNAME" > /etc/hostname
+					hostname "$SYSTEM_HOSTNAME"
+				fi
+			fi
+
+			if [ "$SYSTEM_PASSWORD" != "" ]; then
+				echo "pirate:$SYSTEM_PASSWORD" | chpasswd
+			fi
+
+			if [ ! $NETWORK_ENABLED ]; then
+				systemctl stop dhcpd
+				systemctl stop wpa_supplicant@wlan0
+				systemctl stop wpa_supplicant_ap@wlan0
+				ifconfig wlan0 down
+			elif [ "$NETWORK_MODE" == "wifi" ]; then
+				if ! systemctl is-active wpa_supplicant@wlan0 > /dev/null; then
+					echo "Enabling Wifi: Client Mode"
+					ifconfig wlan0 up
+					systemctl stop dhcpd
+					ifconfig wlan0 dynamic
+					systemctl start wpa_supplicant@wlan0
+				fi
+			elif [ "$NETWORK_MODE" == "ap" ]; then
+				if ! systemctl is-active wpa_supplicant_ap@wlan0 > /dev/null; then
+					echo "Enabling WiFi: Access-point Mode"
+					ifconfig wlan0 up
+					systemctl start wpa_supplicant_ap@wlan0
+					ifconfig wlan0 10.0.3.1
+					systemctl start dhcpd
+				fi
+			fi
+		fi
+	fi
+}
+
+function update_mainpy {
+	if changed "main.py"; then
+		mv /tmp/_main.py /tmp/main.py
+		launch_script
+	fi
+}
+
+function update_configs {
+	# Compare wpa_supplicant.conf to cached version, and update if needed
+	if changed "wpa_supplicant.conf"; then
+		cp /tmp/_wpa_supplicant.conf /tmp/wpa_supplicant.conf
+		cp /tmp/_wpa_supplicant.conf /etc/wpa_supplicant/wpa_supplicant-wlan0.conf
+		if [ "`systemctl is-active wpa_supplicant@wlan0.service`" == "active" ]; then
+			systemctl restart wpa_supplicant@wlan0
+		fi
+	fi
+
+	if changed "wpa_supplicant_ap.conf"; then
+		cp /tmp/_wpa_supplicant_ap.conf /tmp/wpa_supplicant_ap.conf
+		cp /tmp/_wpa_supplicant_ap.conf /etc/wpa_supplicant/wpa_supplicant_ap-wlan0.conf
+		if [ "`systemctl is-acive wpa_supplicant_ap@wlan0.service`" == "active" ]; then
+			systemctl restart wpa_supplicant_ap@wlan0
+		fi
+	fi
+}
+
 function wait_for_change {
 	while read -r action; do
                 echo $action
-		if [ -f /tmp/_main.py ]; then
-			# Compare /boot/main.py to cached version, and update if needed
-			diff /tmp/_main.py /tmp/main.py > /dev/null 2>&1
-			if [ $? -eq 1 ]; then
-				mv /tmp/_main.py /tmp/main.py
-				launch_script
-			fi
+		update_settings
+		update_configs
+		if $CODE_AUTORELOAD; then
+			update_mainpy
 		fi
-
-		# Compare wpa_supplicant.conf to cached version, and update if needed
-		if [ -f /tmp/wpa_supplicant.conf ]; then
-			diff /tmp/wpa_supplicant.conf /etc/wpa_supplicant/wpa_supplicant-wlan0.conf > /dev/null 2>&1
-			if [ $? -eq 1 ]; then
-				cp /tmp/wpa_supplicant.conf /etc/wpa_supplicant/wpa_supplicant-wlan0.conf
-				systemctl restart wpa_supplicant@wlan0
-			fi
-		fi
-
-		sleep 0.1
+		sleep 0.01
 	done < <(PYTHONUNBUFFERED=1 /usr/bin/python3 /sbin/piratepython-sync)
 }
 
@@ -147,10 +231,17 @@ if [ -f /boot/localtime ]; then
 	echo "Using /boot/localtime, time: $(date)" | tee -a $BOOT_OUTPUT
 fi
 
-if [ -f /boot/wpa_supplicant.conf ]; then
-	cp /boot/wpa_supplicant.conf /etc/wpa_supplicant/wpa_supplicant-wlan0.conf
-	systemctl restart wpa_supplicant@wlan0
-fi
+COPYTOTMP=( main.py settings.txt wpa_supplicant.conf wpa_supplicant_ap.conf )
+
+for file in ${COPYTOTMP[@]}; do
+	if [ -f /boot/$file ]; then
+		cp /boot/$file /tmp/_$file
+		touch /tmp/$file
+	fi
+done
+
+update_configs
+update_settings
 
 # Check for, and run boot.sh
 if [ -f /boot/boot.sh ]; then
@@ -162,14 +253,6 @@ if [ -f /boot/boot.py ]; then
 	PYTHONPATH=/boot/libraries PYTHONUNBUFFERED=1 /usr/bin/python3 /boot/boot.py 2>&1 | tee -a $BOOT_OUTPUT
 fi
 
-# Writing to /boot is a nono!
-#mount -o,remount,rw /boot
-#cp $BOOT_LOG /boot/boot.log
-#mount -o,remount,ro /boot
-
-if [ -f /boot/main.py ]; then
-	cp /boot/main.py /tmp/main.py
-	launch_script
-fi
+update_mainpy
 
 wait_for_change

@@ -1,0 +1,21 @@
+#!/bin/bash
+action="$1"
+
+if [ "$action" == "auto" ]; then
+	echo "Starting PiratePython USB sync...."
+	mount -o,remount,ro /boot
+	systemctl start piratepython
+	echo "/boot is read-only!"
+	exit 0
+fi
+
+if [ "$action" == "manual" ]; then
+	echo "Switching to PiratePython manual mode..."
+	systemctl stop piratepython
+	mount -o,remount,rw /boot
+	echo "/boot is now writeable!"
+	exit 0
+fi
+
+echo "Unsupported action: $action"
+echo "Usage: piratepython-mode auto|manual"

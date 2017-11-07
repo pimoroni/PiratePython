@@ -61,6 +61,11 @@ bblink /usr/bin/cmp
 bblink /usr/bin/find
 bblink /usr/bin/xargs
 
+# iputils
+bblink /bin/ping
+
+bblink /bin/hostname
+
 # net-utils
 bblink /bin/netstat
 $MYCHROOT $ROOTDIR ln -sf /bin/busybox /usr/bin/ifconfig
@@ -81,6 +86,8 @@ bblink /bin/cp
 bblink /bin/mv
 bblink /usr/bin/sort
 bblink /usr/bin/du
+bblink /bin/egrep
+bblink /usr/bin/killall
 
 # procps
 $MYCHROOT $ROOTDIR rm -f /usr/bin/top

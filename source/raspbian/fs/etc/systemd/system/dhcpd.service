@@ -1,0 +1,12 @@
+[Unit]
+Description=DHCP Server
+After=hostapd.service sys-subsystem-net-devices-wlan0.device
+BindsTo=sys-subsystem-net-devices-wlan0.device
+
+[Service]
+Type=forking
+PIDFile=/run/udhcpd.pid
+ExecStart=/bin/udhcpd /etc/udhcpd.conf
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,21 @@
+#!/bin/bash
+action="$1"
+
+if [ "$action" == "start" ]; then
+	echo "Starting access point mode..."
+	systemctl start wpa_supplicant_ap@wlan0
+	ifconfig wlan0 10.0.3.1
+	systemctl start dhcpd.service
+	exit 0
+fi
+
+if [ "$action" == "stop" ]; then
+	echo "Stopping access point mode..."
+	systemctl stop dhcpd.service
+	ifconfig wlan0 dynamic
+	systemctl start wpa_supplicant@wlan0
+	exit 0
+fi
+
+echo "Unsupported action: $action"
+echo "Usage: piratepython-ap start|stop"
