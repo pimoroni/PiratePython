@@ -1,0 +1,14 @@
+[Unit]
+Description=WPA supplicant daemon (access-point mode | interface-specific version)
+Requires=sys-subsystem-net-devices-%i.device
+After=sys-subsystem-net-devices-%i.device
+Before=network.target
+Wants=network.target
+Conflicts=wpa_supplicant@%i.service
+
+[Service]
+Type=simple
+ExecStart=/sbin/wpa_supplicant -c/etc/wpa_supplicant/wpa_supplicant_ap-%I.conf -Dnl80211,wext -i%I
+
+[Install]
+Alias=multi-user.target.wants/wpa_supplicant_ap@%i.service

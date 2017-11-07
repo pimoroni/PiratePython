@@ -59,7 +59,7 @@ try:
             if time.time() - last_sync > 0.5:
                 last_sync = time.time()
 
-                time.sleep(0.01)
+                time.sleep(0.001)
 
                 # Unmount boot, don't like doing this but it seems essential
                 bash("umount /boot")
@@ -69,11 +69,12 @@ try:
 
                 #bash("echo 3 > /proc/sys/vm/drop_caches")
 
-                time.sleep(0.01)
+                time.sleep(0.001)
 
                 bash("dd iflag=direct if=/boot/main.py of=/tmp/_main.py")
-                bash("dd iflag=direct if=/boot/settings.txt of=/tmp/settings.txt")
+                bash("dd iflag=direct if=/boot/settings.txt of=/tmp/_settings.txt")
                 bash("dd iflag=direct if=/boot/wpa_supplicant.conf of=/tmp/wpa_supplicant.conf")
+                bash("dd iflag=direct if=/boot/wpa_supplicant_ap.conf of=/tmp/wpa_supplicant_ap.conf")
                 bash("touch /tmp/refresh")
 
                 print("sync")
