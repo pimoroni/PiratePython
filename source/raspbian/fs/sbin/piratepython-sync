@@ -1,0 +1,84 @@
+#!/usr/bin/python3
+
+import subprocess
+import threading
+import time
+import os
+import signal
+import sys
+
+proc = subprocess.Popen(["/bin/dmesg", "-w"], stdout=subprocess.PIPE)
+
+do_sync = False
+last_sync = time.time() + 1
+lock = threading.Lock()
+
+sync_only_mode = False
+running = True
+
+def wait_for_sync():
+    global do_sync, sync_only_mode
+    for line in iter(proc.stdout.readline,''):
+        if not running:
+            break
+
+        line = str(line.rstrip())
+        # Windows/Linux seem to call SCSI SYNCHRONIZE CACHE
+        if "PiratePython SYNCHRONIZE CACHE" in line:
+            # If we see a cache sync then lock in on only those
+            sync_only_mode = True
+            do_sync = True
+        # OSX is weird and *only* calls writes
+        # if we never see a cache sync, then rely on writes
+        elif sync_only_mode == False and "SYNCHRONIZE CACHE" in line:
+            do_sync = True
+
+        time.sleep(0.005)
+
+_t_sync = threading.Thread(target=wait_for_sync)
+_t_sync.start()
+
+def bash(cmd):
+    try:
+        proc = subprocess.Popen([cmd], shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        return proc.communicate()
+    except subprocess.CalledProcessError:
+        return None
+
+def signal_handler(signal=0, frame=0):
+    global running
+    running = False
+    proc.terminate()
+    _t_sync.join()
+    sys.exit(0)
+
+try:
+    while True:
+        if do_sync:
+            do_sync = False
+            if time.time() - last_sync > 0.5:
+                last_sync = time.time()
+
+                time.sleep(0.01)
+
+                # Unmount boot, don't like doing this but it seems essential
+                bash("umount /boot")
+ 
+                # Remount, now we should have new information about the size of main.py
+                bash("mount /boot")
+
+                #bash("echo 3 > /proc/sys/vm/drop_caches")
+
+                time.sleep(0.01)
+
+                bash("dd iflag=direct if=/boot/main.py of=/tmp/_main.py")
+                bash("dd iflag=direct if=/boot/settings.txt of=/tmp/settings.txt")
+                bash("dd iflag=direct if=/boot/wpa_supplicant.conf of=/tmp/wpa_supplicant.conf")
+                bash("touch /tmp/refresh")
+
+                print("sync")
+
+        time.sleep(0.1)
+
+except KeyboardInterrupt:
+    signal_handler(0, 0)

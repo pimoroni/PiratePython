@@ -104,7 +104,8 @@ $MYCHROOT $ROOTDIR /bin/systemctl reenable systemd-networkd-wait-online.service
 $MYCHROOT $ROOTDIR /bin/systemctl reenable piratepython.service
 $MYCHROOT $ROOTDIR /bin/systemctl reenable dropbear.service
 $MYCHROOT $ROOTDIR /bin/systemctl reenable wpa_supplicant@wlan0.service
-$MYCHROOT $ROOTDIR /bin/systemctl reenable getty@ttyGS0.service
+$MYCHROOT $ROOTDIR /bin/systemctl reenable usb-gadget.service
+$MYCHROOT $ROOTDIR /bin/systemctl reenable getty@ttyGS1.service
 
 # time used by timesyncd if no other is available
 touch $ROOTDIR/var/lib/systemd/clock

@@ -57,22 +57,13 @@ mkdir functions/acm.GS1
 #mkdir functions/ecm.usb0 # OSX/Linux
 mkdir functions/rndis.usb0 # Flippin' Windows
 mkdir functions/mass_storage.piratepython
-#mkdir functions/mass_storage.piratepython/lun.1
 
-# lun.0 /dev/mmcblk0p1 for editing files on SD card
 echo "/dev/mmcblk0p1" > functions/mass_storage.piratepython/lun.0/file
 echo 0 > functions/mass_storage.piratepython/stall
 echo 0 > functions/mass_storage.piratepython/lun.0/cdrom
 echo 0 > functions/mass_storage.piratepython/lun.0/nofua
 echo 1 > functions/mass_storage.piratepython/lun.0/removable
-echo "PPPython Boot" > functions/mass_storage.piratepython/lun.0/inquiry_string
-
-# lun.1 virtual filesystem for returning debug info
-#echo 0 > functions/mass_storage.piratepython/lun.1/cdrom
-#echo 0 > functions/mass_storage.piratepython/lun.1/nofua
-#echo 1 > functions/mass_storage.piratepython/lun.1/removable
-#echo 1 > functions/mass_storage.piratepython/lun.1/ro
-#echo "PPPython Debug" > functions/mass_storage.piratepython/lun.1/inquiry_string
+echo "PiratePython" > functions/mass_storage.piratepython/lun.0/inquiry_string
 
 echo "RNDIS" > functions/rndis.usb0/os_desc/interface.rndis/compatible_id
 echo "5162001" > functions/rndis.usb0/os_desc/interface.rndis/sub_compatible_id
@@ -96,7 +87,7 @@ echo "20980000.usb" > UDC
 
 # Give it time to install
 
-sleep 5
+sleep 2
 
 # Yank it back
 
