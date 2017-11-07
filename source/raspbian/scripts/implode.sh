@@ -23,6 +23,36 @@ bblink /bin/gzip
 # cpio
 # bblink /bin/cpio
 
+# extra stuff
+bblink /usr/bin/reset
+bblink /usr/bin/clear
+bblink /usr/bin/telnet
+bblink /usr/bin/microcom
+bblink /bin/pidof
+bblink /bin/zcat
+bblink /bin/udhcpd
+bblink /bin/udhcpc
+bblink /bin/vconfig
+bblink /usr/bin/unzip
+bblink /usr/bin/dos2unix
+bblink /usr/bin/unix2dos
+bblink /usr/bin/wget
+bblink /bin/bzip2
+bblink /usr/bin/hexdump
+bblink /usr/bin/tftp
+bblink /usr/bin/xzcat
+#bblink /sbin/getty
+bblink /usr/bin/logger
+bblink /bin/nc
+bblink /usr/sbin/traceroute
+bblink /sbin/start-stop-daemon
+bblink /bin/uncompress
+bblink /usr/bin/renice
+bblink /usr/bin/httpd
+bblink /usr/bin/nslookup
+bblink /usr/bin/rpm
+bblink /usr/bin/ipcalc
+
 # diffutils
 bblink /usr/bin/diff
 bblink /usr/bin/cmp
