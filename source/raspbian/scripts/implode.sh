@@ -45,7 +45,6 @@ bblink /usr/bin/xzcat
 bblink /usr/bin/logger
 bblink /bin/nc
 bblink /usr/sbin/traceroute
-bblink /sbin/start-stop-daemon
 bblink /bin/uncompress
 bblink /usr/bin/renice
 bblink /usr/bin/httpd
@@ -103,3 +102,5 @@ $MYCHROOT $ROOTDIR rm -rf /etc/apt
 
 $MYCHROOT $ROOTDIR rm /usr/share/javascript/jquery/jquery.js
 $MYCHROOT $ROOTDIR ln -s /usr/share/javascript/jquery/jquery.min.js /usr/share/javascript/jquery/jquery.js
+
+bblink /sbin/start-stop-daemon
