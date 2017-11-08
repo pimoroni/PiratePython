@@ -1,8 +1,28 @@
-# Reserved for feature upgrade
-# currently does nothing!
-serial_mode=debug
-ssh=on
-network=on
-bluetooth=off
+[Code]
+autoreload=true
+# deploy - unimplemented
+deploy=false
+
+[System]
 hostname=piratepython
 password=p1r4t3
+
+[Network]
+# enabled
+# true = enable wifi
+# false = disable wifi
+enabled=true
+
+# mode
+# wifi = connect to a wifi network defined in wpa_supplicant.conf
+# ap = set up a wifi access point with the name/password defined in wpa_supplicant_ap.conf
+mode=wifi
+
+[Bluetooth]
+# enabled - unimplemented
+enabled=false
+
+[USB]
+# Set ethernet mode, can be windows or linux/OSX
+# ethernet - unimplemented
+ethernet=windows

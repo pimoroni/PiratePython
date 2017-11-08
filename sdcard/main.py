@@ -1,7 +1,5 @@
 #!/usr/bin/env python
 
-import time
-
 print("""
 
 Hello World
@@ -13,10 +11,26 @@ Your changes will be loaded instantly!
 
 Drop extra libraries into the libraries folder.
 
-Edit the serial_mode file to change USB serial mode:
-    * debug = Show Python output as it happens!
-    * terminal = Log into a terminal with pirate/p1r4t3 
-      and cat /tmp/python.log
+PiratePython has two USB serial ports:
+
+* The first one for your Python debug output
+* The second one with a bash shell
+
+On Windows 10 you can find these by;
+
+* pressing Windows + R
+* entering: control /name Microsoft.DevicesAndPrinters
+* hitting enter
+* finding the PiratePython device
+* right click -> properties
+* click the Hardware tab
+* you will see USB Serial Device (COMXX)
+* and a second USB Serial Device (COMYY)
+* use an app like PuTTY to connect! 
+
+PiratePython has SSH! Configure your WiFi and:
+
+ssh pirate@piratepython.local
 
 And don't forget to have fun!
 
