@@ -1,6 +1,6 @@
 [Unit]
 Description=Pirathon Python Runner
-After=multiuser.target
+After=multiuser.target usb-gadget.service
 Requires=local-fs.target
 
 [Install]

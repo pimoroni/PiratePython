@@ -30,18 +30,6 @@ BLUETOOTH_ENABLED=false
 
 USB_ETHERNET="windows"
 
-chown -R pirate:pirate /home/pirate
-mount /boot
-
-# Wait for /boot
-while [ ! -f /boot/initrd ]; do sleep 1; done
-
-# Wait for USB
-while [ ! -d /sys/kernel/config/usb_gadget/g1 ]; do sleep 1; done
-
-# Wait for TTY
-while [ ! -c $PYTHON_TTY ]; do sleep 1; done
-
 # Block multiple instances
 if [ -f "$PIDFILE" ]; then
 	PID=`cat $PIDFILE`
@@ -69,6 +57,32 @@ if [ -f "$PIDFILE" ]; then
 	rm -f $PIDFILE
 	rm -rf $PYTHONPIDFILE
 fi
+
+chown -R pirate:pirate /home/pirate
+mount /boot
+
+# Wait for /boot
+while [ ! -f /boot/initrd ]; do sleep 1; done
+
+# Mount any package files
+if [ -d /boot/packages ]; then
+	for f in /boot/packages/*.img; do
+		filename=$(basename "$f")
+		imagename="${filename%.*}"
+		mountpoint="/opt/$imagename"
+		mkdir -p $mountpoint
+		mount $f $mountpoint
+		cd $mountpoint
+		./init
+		cd /
+	done;
+fi;
+
+# Wait for USB
+while [ ! -d /sys/kernel/config/usb_gadget/g1 ]; do sleep 1; done
+
+# Wait for TTY
+while [ ! -c $PYTHON_TTY ]; do sleep 1; done
 
 if [ "$1" == "stop" ]; then
 	echo "No existing PiratePython process found!"
@@ -110,7 +124,7 @@ function update_settings {
 				OLD_HOSTNAME=`cat /etc/hostname`
 				if [ "$OLD_HOSTNAME" != "$SYSTEM_HOSTNAME" ]; then
 					echo "Changing hostname from $OLD_HOSTNAME to $SYSTEM_HOSTNAME"
-					sed -i 's/127.0.0.1\s\{1,\}$OLD_HOSTNAME/127.0.0.1\t$SYSTEM_HOSTNAME/' /etc/hosts
+					sed -i "s/127.0.0.1\s\{1,\}$OLD_HOSTNAME/127.0.0.1\t$SYSTEM_HOSTNAME/" /etc/hosts
 					echo "$SYSTEM_HOSTNAME" > /etc/hostname
 					hostname "$SYSTEM_HOSTNAME"
 				fi
